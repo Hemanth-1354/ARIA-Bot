@@ -765,7 +765,15 @@ def render_sidebar() -> None:
 # Empty state
 # ─────────────────────────────────────────────────────────────────────────────
 def render_empty_state() -> None:
-    """Shown when the active conversation has no messages."""
+    """
+    Shown when the active conversation has no messages.
+
+    Suggestions are split into two groups:
+      - doc_suggestions: require a PDF to be loaded. Blocked otherwise.
+      - general_suggestions: always available, no document needed.
+    """
+    has_doc = st.session_state.vector_store is not None
+
     st.markdown("""
     <div class="empty-wrap">
         <div class="empty-greeting">What are you researching today?</div>
@@ -773,19 +781,75 @@ def render_empty_state() -> None:
     </div>
     """, unsafe_allow_html=True)
 
-    suggestions = [
-        ("Summarise the paper",      "Give me a summary of the key contributions and findings."),
-        ("Explain the methodology",  "Walk me through the methodology used in this paper."),
-        ("Latest LLM research",      "What are the latest trends in large language model research?"),
-        ("RAG vs Fine-tuning",       "What are the key differences between RAG and fine-tuning for LLMs?"),
-        ("Key limitations",          "What are the limitations and future work mentioned in this paper?"),
-        ("Related work",             "What prior work does this paper build on?"),
+    # ── Document-specific suggestions ────────────────────────────────────────
+    doc_suggestions = [
+        ("Summarise the paper",     "Give me a summary of the key contributions and findings."),
+        ("Explain the methodology", "Walk me through the methodology used in this paper."),
+        ("Key limitations",         "What are the limitations and future work mentioned in this paper?"),
+        ("Related work",            "What prior work does this paper build on?"),
     ]
 
-    cols = st.columns(2)
-    for i, (label, prompt) in enumerate(suggestions):
-        with cols[i % 2]:
-            if st.button(label, key=f"sug_{i}", use_container_width=True):
+    # ── General suggestions (no document required) ────────────────────────────
+    general_suggestions = [
+        ("Latest LLM research",  "What are the latest trends in large language model research?"),
+        ("RAG vs Fine-tuning",   "What are the key differences between RAG and fine-tuning for LLMs?"),
+    ]
+
+    # ── Section: From your document ──────────────────────────────────────────
+    if has_doc:
+        doc_name = st.session_state.uploaded_filename or "document"
+        short    = (doc_name[:32] + "…") if len(doc_name) > 32 else doc_name
+        st.markdown(
+            f'<div style="font-size:0.7rem;font-weight:600;color:#4b5563;'
+            f'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.6rem;'
+            f'font-family:Inter,sans-serif;">From · {short}</div>',
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(2)
+        for i, (label, prompt) in enumerate(doc_suggestions):
+            with cols[i % 2]:
+                if st.button(label, key=f"doc_sug_{i}", use_container_width=True):
+                    st.session_state.pending_prompt = prompt
+                    st.rerun()
+    else:
+        # Show document suggestions as locked/greyed with a clear message
+        st.markdown(
+            '<div style="font-size:0.7rem;font-weight:600;color:#374151;'
+            'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.6rem;'
+            'font-family:Inter,sans-serif;">From document — upload a PDF to unlock</div>',
+            unsafe_allow_html=True,
+        )
+        # Render greyed-out non-clickable chips
+        chips_html = "".join(
+            f'<span style="display:inline-block;background:#0d0f14;border:1px solid #1a1d27;'
+            f'color:#2a2f47;font-size:0.78rem;font-family:Inter,sans-serif;font-weight:500;'
+            f'border-radius:7px;padding:0.4rem 0.9rem;margin:0 6px 6px 0;'
+            f'cursor:not-allowed;user-select:none;">{label}</span>'
+            for label, _ in doc_suggestions
+        )
+        st.markdown(
+            f'<div style="margin-bottom:0.4rem;">{chips_html}</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div style="font-size:0.75rem;color:#374151;font-family:Inter,sans-serif;'
+            'margin-bottom:1rem;">Upload a PDF in the sidebar to ask document-specific questions.</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height:0.8rem;"></div>', unsafe_allow_html=True)
+
+    # ── Section: General questions ────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-size:0.7rem;font-weight:600;color:#4b5563;'
+        'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.6rem;'
+        'font-family:Inter,sans-serif;">General</div>',
+        unsafe_allow_html=True,
+    )
+    cols2 = st.columns(2)
+    for i, (label, prompt) in enumerate(general_suggestions):
+        with cols2[i % 2]:
+            if st.button(label, key=f"gen_sug_{i}", use_container_width=True):
                 st.session_state.pending_prompt = prompt
                 st.rerun()
 
@@ -847,10 +911,18 @@ def chat_page() -> None:
     if st.session_state.pending_prompt:
         prompt = st.session_state.pending_prompt
         st.session_state.pending_prompt = None
-        _add_message("user", prompt)
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        run_pipeline(prompt)
+
+        # Safety guard: doc-specific prompts require a loaded document
+        doc_keywords = ["summary", "methodology", "limitations", "prior work", "findings", "paper"]
+        needs_doc = any(kw in prompt.lower() for kw in doc_keywords)
+        if needs_doc and not st.session_state.vector_store:
+            st.info("Please upload a PDF in the sidebar before asking document-specific questions.")
+            logger.info("Blocked doc suggestion — no document loaded.")
+        else:
+            _add_message("user", prompt)
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            run_pipeline(prompt)
 
     # Chat input
     if prompt := st.chat_input("Ask ARIA…"):
