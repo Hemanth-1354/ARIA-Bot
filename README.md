@@ -1,6 +1,6 @@
-# 🔬 ARIA - AI Research Intelligence Assistant
+# 🔬 ARIA — AI Research Intelligence Assistant
 
-
+> Built for NeoStats AI Engineer Case Study
 
 ## What is ARIA?
 
@@ -23,9 +23,7 @@ ARIA is an intelligent research assistant that lets you:
 
 ```bash
 pip install -r requirements.txt
-GROQ_API_KEY=your_key 
-TAVILY_API_KEY=your_key 
-streamlit run app.py
+GROQ_API_KEY=your_key TAVILY_API_KEY=your_key streamlit run app.py
 ```
 
 ## Project Structure
