@@ -76,47 +76,6 @@ All settings are managed in `config/config.py` via environment variables:
 | `CHUNK_OVERLAP`   | `100`                     | Overlap between chunks                   |
 | `TOP_K_RESULTS`   | `4`                       | Number of chunks retrieved per query     |
 
----
-
-## Module Overview
-
-### `models/embeddings.py`
-
-Loads the `all-MiniLM-L6-v2` HuggingFace model locally on CPU. No API key required. Produces normalized embeddings for semantic similarity search.
-
-### `models/llm.py`
-
-Initialises the Groq `ChatGroq` model with two modes:
-
-- **Concise** — max 300 tokens, fast replies
-- **Detailed** — max 1500 tokens, comprehensive analysis
-
-### `utils/rag.py`
-
-Full RAG pipeline:
-
-1. Load PDF with `PyPDFLoader`
-2. Chunk with `RecursiveCharacterTextSplitter` (size=800, overlap=100)
-3. Build FAISS index with HuggingFace embeddings
-4. Retrieve top-k relevant chunks for any query
-5. Supports multi-PDF merge and per-document retrieval for comparison mode
-
-### `utils/web_search.py`
-
-Calls the Tavily API to fetch real-time web results. Returns a synthesised answer plus top sources with snippets and URLs.
-
-### `utils/prompt_builder.py`
-
-Dynamically assembles the system prompt with:
-
-- ARIA persona
-- Response mode instruction (concise/detailed)
-- RAG document context (if a PDF is uploaded)
-- Web search results (if enabled)
-
-### `utils/followup.py`
-
-After every assistant reply, generates 3 short follow-up questions using the same Groq model in concise mode. Fails silently - never disrupts the main Q&A pipeline.
 
 ---
 
