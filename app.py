@@ -1116,7 +1116,7 @@ def setup_page() -> None:
     st.markdown("""
 ### 
 ```bash
-Check Github: www.github.com/Hemanth-1354
+Check Github: www.github.com/Hemanth-1354/ARIA-Bot
 ```
     """)
 
