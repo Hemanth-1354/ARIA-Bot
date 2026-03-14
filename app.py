@@ -727,7 +727,7 @@ def render_sidebar() -> str:  # Now correctly returns the page string
         <div class="sb-brand">
             <div>
                 <div class="sb-brand-name">
-                    <span class="material-icons" style="font-size:20px; vertical-align:middle;">
+                    <span class="material-icons" style="font-size:35px; vertical-align:middle;">
                         travel_explore
                     </span>
                     <span style="font-size:28px; font-weight:700; margin-left:4px;">
