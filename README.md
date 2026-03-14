@@ -1,17 +1,17 @@
-# ARIA — AI Research Intelligence Assistant
+# ARIA - AI Research Intelligence Assistant
 
-ARIA is an intelligent, modular research assistant that lets you upload academic papers, ask deep questions about them, and get real-time web search results — all powered by a Groq LLM, a local FAISS vector store, and HuggingFace embeddings.
+ARIA is an intelligent, modular research assistant that lets you upload academic papers, ask deep questions about them, and get real-time web search results - all powered by a Groq LLM, a local FAISS vector store, and HuggingFace embeddings.
 
 ---
 
 ## Features
 
-- **PDF Q&A** — Upload one or multiple research papers and ask questions using Retrieval-Augmented Generation (RAG)
-- **Real-time Web Search** — Augment answers with live results via the Tavily API
-- **Smart Follow-ups** — Auto-generates 3 follow-up questions after every response
-- **Dual Response Modes** — Switch between Concise (quick answers) and Detailed (in-depth analysis) instantly
-- **Multi-PDF Comparison** — Ingest multiple papers and search across all of them simultaneously
-- **Fully Local Embeddings** — No external API needed for embeddings; runs on CPU
+- **PDF Q&A** - Upload one or multiple research papers and ask questions using Retrieval-Augmented Generation (RAG)
+- **Real-time Web Search** - Augment answers with live results via the Tavily API
+- **Smart Follow-ups** - Auto-generates 3 follow-up questions after every response
+- **Dual Response Modes** - Switch between Concise (quick answers) and Detailed (in-depth analysis) instantly
+- **Multi-PDF Comparison** - Ingest multiple papers and search across all of them simultaneously
+- **Fully Local Embeddings** - No external API needed for embeddings; runs on CPU
 
 ---
 
@@ -61,46 +61,6 @@ project/
 
 ---
 
-## Quick Start
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Hemanth-1354/ARIA-Bot.git
-cd ARIA-Bot
-```
-
-### 2. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Set your API keys
-
-You need two API keys:
-
-| Key              | Where to get it                              |
-| ---------------- | -------------------------------------------- |
-| `GROQ_API_KEY`   | [console.groq.com](https://console.groq.com) |
-| `TAVILY_API_KEY` | [tavily.com](https://tavily.com)             |
-
-Export them in your terminal:
-
-```bash
-export GROQ_API_KEY=your_groq_key_here
-export TAVILY_API_KEY=your_tavily_key_here
-```
-
-### 4. Run the app
-
-```bash
-streamlit run app.py
-```
-
-Open your browser at `http://localhost:8501`
-
----
 
 ## Configuration
 
@@ -156,7 +116,7 @@ Dynamically assembles the system prompt with:
 
 ### `utils/followup.py`
 
-After every assistant reply, generates 3 short follow-up questions using the same Groq model in concise mode. Fails silently — never disrupts the main Q&A pipeline.
+After every assistant reply, generates 3 short follow-up questions using the same Groq model in concise mode. Fails silently - never disrupts the main Q&A pipeline.
 
 ---
 
@@ -173,23 +133,9 @@ After every assistant reply, generates 3 short follow-up questions using the sam
 
 ---
 
-## Security Notes
-
-- **Never hardcode API keys** in source files
-- Use environment variables (`export KEY=value`) or a `.env` file
-- If using a `.env` file, add it to `.gitignore`:
-
-```gitignore
-.env
-.env.local
-.streamlit/secrets.toml
-```
-
----
-
 ## Known Limitations & Assumptions
 
-- Embeddings run on **CPU only** — sufficient for MVP but slower on large PDFs
+- Embeddings run on **CPU only** - sufficient for MVP but slower on large PDFs
 - PDFs must be **text-based** (not scanned images); OCR is not supported
 - API keys must be set in the environment before running the app
 - Follow-up generation is **non-critical** and will fail silently without affecting core Q&A
