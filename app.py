@@ -782,29 +782,8 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # ── Documents (multi-upload) ───────────────────────────────────────────
+        # ── Documents list (managed via input box attachment) ─────────────────
         st.markdown('<div class="sb-label">Documents</div>', unsafe_allow_html=True)
-
-        uploaded_files = st.file_uploader(
-            "Upload PDFs",
-            type=["pdf"],
-            accept_multiple_files=True,
-            label_visibility="collapsed",
-            key="multi_uploader",
-        )
-
-        if uploaded_files:
-            for uf in uploaded_files:
-                if uf.name not in st.session_state.doc_indexes:
-                    with st.spinner(f"Indexing {uf.name[:20]}…"):
-                        try:
-                            vs = ingest_pdf(uf)
-                            st.session_state.doc_indexes[uf.name] = vs
-                            _rebuild_merged_index()
-                            logger.info("Indexed: %s", uf.name)
-                        except RuntimeError as e:
-                            st.error(f"Failed to index {uf.name}: {e}")
-                            logger.error("Index failed for %s: %s", uf.name, e)
 
         # Loaded docs list with remove buttons
         if st.session_state.doc_indexes:
@@ -825,7 +804,7 @@ def render_sidebar() -> None:
             st.markdown(
                 '<div class="status-row">'
                 '<span class="dot dot-off"></span>'
-                '<span style="color:#555;">No documents loaded</span></div>',
+                '<span style="color:#555;">Attach PDFs via the input box</span></div>',
                 unsafe_allow_html=True,
             )
 
@@ -925,7 +904,7 @@ def render_empty_state() -> None:
     st.markdown("""
     <div class="empty-wrap">
         <div class="empty-logo">ARIA</div>
-        <div class="empty-sub">Ask anything about your research papers, or pick a suggestion below.</div>
+        <div class="empty-sub">Click the paperclip in the input box to attach PDFs, or ask anything below.</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -994,6 +973,42 @@ def render_messages() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Chat page
 # ─────────────────────────────────────────────────────────────────────────────
+def _handle_attached_files(attached_files: list) -> None:
+    """
+    Process PDF files attached via the chat input box.
+    Indexes each new file and rebuilds the merged FAISS index.
+
+    Args:
+        attached_files: list of UploadedFile objects from st.chat_input.
+    """
+    try:
+        newly_indexed = []
+        for uf in attached_files:
+            if not uf.name.lower().endswith(".pdf"):
+                st.warning(f"Skipped '{uf.name}' — only PDF files are supported.")
+                continue
+            if uf.name in st.session_state.doc_indexes:
+                continue  # already indexed
+            with st.spinner(f"Indexing {uf.name[:28]}…"):
+                try:
+                    vs = ingest_pdf(uf)
+                    st.session_state.doc_indexes[uf.name] = vs
+                    newly_indexed.append(uf.name)
+                    logger.info("Indexed via attachment: %s", uf.name)
+                except RuntimeError as e:
+                    st.error(f"Could not index '{uf.name}': {e}")
+                    logger.error("Attachment index failed for %s: %s", uf.name, e)
+
+        if newly_indexed:
+            _rebuild_merged_index()
+            names = ", ".join(n[:25] for n in newly_indexed)
+            st.toast(f"Indexed: {names}", icon="📄")
+
+    except Exception as e:
+        logger.error("Attachment handling failed: %s", e)
+        st.error(f"File processing error: {e}")
+
+
 def chat_page() -> None:
     try:
         conv  = st.session_state.conversations.get(st.session_state.active_conv_id, {})
@@ -1018,7 +1033,7 @@ def chat_page() -> None:
         a_short = (a[:25] + "…") if len(a) > 25 else a
         b_short = (b[:25] + "…") if len(b) > 25 else b
         st.markdown(
-            f'<div class="cmp-banner">Comparison mode active — '
+            f'<div class="cmp-banner">Comparison mode — '
             f'<strong>{a_short}</strong> vs <strong>{b_short}</strong></div>',
             unsafe_allow_html=True,
         )
@@ -1035,11 +1050,10 @@ def chat_page() -> None:
         prompt = st.session_state.pending_prompt
         st.session_state.pending_prompt = None
 
-        # Guard: doc-specific prompts need at least one document
         doc_kw = ["summary", "methodology", "limitations", "prior work", "findings", "paper"]
         needs_doc = any(kw in prompt.lower() for kw in doc_kw)
         if needs_doc and not st.session_state.doc_indexes:
-            st.info("Upload a PDF first to ask document-specific questions.")
+            st.info("Attach a PDF first to ask document-specific questions.")
         else:
             _add_message("user", prompt)
             with st.chat_message("user"):
@@ -1049,19 +1063,57 @@ def chat_page() -> None:
             else:
                 run_pipeline(prompt)
 
-    # Chat input
-    if prompt := st.chat_input(
-        "Compare papers, ask about your documents, or search the web…"
-        if st.session_state.compare_mode
-        else "Ask ARIA…"
-    ):
-        _add_message("user", prompt)
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        if st.session_state.compare_mode:
-            run_comparison_pipeline(prompt)
-        else:
-            run_pipeline(prompt)
+    # ── Chat input with native file attachment (Streamlit ≥ 1.40) ────────────
+    try:
+        result = st.chat_input(
+            "Attach PDFs or ask ARIA anything…",
+            accept_file="multiple",
+            file_type=["pdf"],
+            key="chat_input_main",
+        )
+    except TypeError:
+        # Fallback for Streamlit < 1.40 — plain text input only
+        result = st.chat_input("Ask ARIA…", key="chat_input_fallback")
+
+    if result is not None:
+        # result is a ChatInputValue object with .text and .files
+        try:
+            attached = getattr(result, "files", None) or []
+            prompt   = getattr(result, "text", result) or ""
+
+            # 1. Process any attached PDFs first
+            if attached:
+                _handle_attached_files(attached)
+
+            # 2. If there's text, run the pipeline
+            if prompt and prompt.strip():
+                _add_message("user", prompt.strip())
+                with st.chat_message("user"):
+                    # Show attached file names alongside the message
+                    if attached:
+                        file_tags = " ".join(
+                            f'<span style="background:#1a2a1a;color:#10a37f;'
+                            f'border:1px solid #134d35;border-radius:4px;'
+                            f'padding:1px 7px;font-size:0.68rem;font-family:Inter,sans-serif;'
+                            f'margin-right:4px;">{f.name[:20]}</span>'
+                            for f in attached
+                        )
+                        st.markdown(file_tags, unsafe_allow_html=True)
+                    st.markdown(prompt.strip())
+
+                if st.session_state.compare_mode:
+                    run_comparison_pipeline(prompt.strip())
+                else:
+                    run_pipeline(prompt.strip())
+
+            elif attached and not prompt.strip():
+                # Files attached but no message — show confirmation
+                names = ", ".join(f.name[:20] for f in attached)
+                st.success(f"Attached: {names} — now ask a question about it.")
+
+        except Exception as e:
+            logger.error("Chat input processing error: %s", e)
+            st.error(f"Input error: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
