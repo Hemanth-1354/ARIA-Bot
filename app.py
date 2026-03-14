@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # Page config
 st.set_page_config(
     page_title="ARIA",
-    page_icon=":material/neurology:",
+    page_icon=":material/smart_toy:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
