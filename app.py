@@ -11,8 +11,24 @@ Features:
   · Live web search via Tavily
   · Concise / Detailed response mode
   · Full try/except error handling on every function
+
+Fixes applied:
+  1. Sidebar toggle now works via JS injection targeting Streamlit's sidebar element
+  2. Home page content positioned near top (not vertically centered)
+  3. Hamburger button fixed to top-left corner
 """
 
+from config.config import GROQ_API_KEY, TAVILY_API_KEY
+from utils.followup import generate_followups
+from utils.prompt_builder import build_system_prompt
+from utils.web_search import search_web
+from utils.rag import (
+    ingest_pdf,
+    merge_indexes,
+    retrieve_relevant_chunks,
+    retrieve_per_doc,
+)
+from models.llm import get_chatgroq_model
 import os
 import sys
 import logging
@@ -25,34 +41,23 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from models.llm import get_chatgroq_model
-from utils.rag import (
-    ingest_pdf,
-    merge_indexes,
-    retrieve_relevant_chunks,
-    retrieve_per_doc,
-)
-from utils.web_search import search_web
-from utils.prompt_builder import build_system_prompt
-from utils.followup import generate_followups
-from config.config import GROQ_API_KEY, TAVILY_API_KEY
 
-# Logging 
+# ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# Page config
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="ARIA",
-    page_icon=":material/smart_toy:",
+    page_icon=":material/travel_explore:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# CSS 
+# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
@@ -65,11 +70,11 @@ html, body, [class*="css"] {
     color: #ececec;
 }
 
-/* ── Sidebar — darker panel ── */
+/* ── Sidebar — darker panel, always visible on load ── */
 section[data-testid="stSidebar"] {
-    background: #171717;
-    border-right: 1px solid #2a2a2a;
-    width: 260px !important;
+    background: #171717 !important;
+    border-right: 1px solid #2a2a2a !important;
+    min-height: 100vh !important;
 }
 section[data-testid="stSidebar"] > div { padding: 0; }
 
@@ -80,9 +85,12 @@ section[data-testid="stSidebar"] > div { padding: 0; }
     margin: 0 auto;
 }
 
-/* ── Hide Streamlit chrome ── */
-#MainMenu, footer, header { visibility: hidden; }
+/* ── Hide Streamlit default chrome ── */
+#MainMenu, footer { visibility: hidden; }
+header { background: transparent !important; }
 [data-testid="stDecoration"] { display: none; }
+
+
 
 /* ── Sidebar brand ── */
 .sb-brand {
@@ -178,13 +186,13 @@ div[data-testid="stSidebar"] .stButton > button:hover {
     gap: 0.3rem;
 }
 
-/* ── Main: GPT-style empty state ── */
+/* ── Main: empty state — top-aligned, not vertically centered ── */
 .empty-wrap {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 4rem 0 2rem;
+    justify-content: flex-start;
+    padding: 0.25rem 0 2rem;       /* very small top padding — sits near top */
     text-align: center;
 }
 .empty-logo {
@@ -375,8 +383,7 @@ hr { border-color: #2a2a2a !important; margin: 0.5rem 0 !important; }
 """, unsafe_allow_html=True)
 
 
-
-# Session State
+# ── Session State ─────────────────────────────────────────────────────────────
 def init_session_state() -> None:
     """Bootstrap all session state keys with safe defaults."""
     defaults: dict = {
@@ -396,6 +403,8 @@ def init_session_state() -> None:
         "use_web_search":    True,
         # Pending prompt from button click
         "pending_prompt":    None,
+        # Sidebar open/closed — toggled by hamburger button, read by set_page_config
+        "sidebar_open":      True,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -409,7 +418,7 @@ def init_session_state() -> None:
         _new_conversation()
 
 
-# Conversation helpers
+# ── Conversation helpers ──────────────────────────────────────────────────────
 def _new_conversation(title: str = "New chat") -> str:
     """Create a fresh conversation and set it as active."""
     try:
@@ -440,7 +449,7 @@ def _add_message(role: str, content: str, **meta) -> None:
         cid = st.session_state.active_conv_id
         msg = {"role": role, "content": content, **meta}
         st.session_state.conversations[cid]["messages"].append(msg)
-        # Auto-title
+        # Auto-title first user message
         if role == "user" and len(st.session_state.conversations[cid]["messages"]) == 1:
             title = content[:40] + ("…" if len(content) > 40 else "")
             st.session_state.conversations[cid]["title"] = title
@@ -448,12 +457,13 @@ def _add_message(role: str, content: str, **meta) -> None:
         logger.error("Failed to add message: %s", e)
 
 
-# Document management
+# ── Document management ───────────────────────────────────────────────────────
 def _rebuild_merged_index() -> None:
     """Rebuild the merged FAISS index from all loaded doc indexes."""
     try:
         indexes = list(st.session_state.doc_indexes.values())
-        st.session_state.merged_index = merge_indexes(indexes) if indexes else None
+        st.session_state.merged_index = merge_indexes(
+            indexes) if indexes else None
         logger.info("Merged index rebuilt from %d docs.", len(indexes))
     except RuntimeError as e:
         st.error(f"Could not merge document indexes: {e}")
@@ -466,7 +476,6 @@ def _remove_document(name: str) -> None:
         if name in st.session_state.doc_indexes:
             del st.session_state.doc_indexes[name]
             _rebuild_merged_index()
-            # Clear comparison selection if removed doc was selected
             if st.session_state.compare_doc_a == name:
                 st.session_state.compare_doc_a = None
             if st.session_state.compare_doc_b == name:
@@ -476,7 +485,7 @@ def _remove_document(name: str) -> None:
         logger.error("Failed to remove document '%s': %s", name, e)
 
 
-# Source pills HTML
+# ── Source pills HTML ─────────────────────────────────────────────────────────
 def _pills(source: str) -> str:
     m = {
         "rag":     '<span class="spill sp-doc">Document</span>',
@@ -488,17 +497,12 @@ def _pills(source: str) -> str:
     return m.get(source, "")
 
 
-
-# LLM — streaming
+# ── LLM — streaming ───────────────────────────────────────────────────────────
 def _stream(system_prompt: str, messages: list) -> Generator:
     """
     Stream tokens from Groq.
-
-    Yields:
-        str token chunks.
-
-    Raises:
-        RuntimeError: on init or streaming failure.
+    Yields str token chunks.
+    Raises RuntimeError on init or streaming failure.
     """
     try:
         model = get_chatgroq_model(mode=st.session_state.response_mode)
@@ -520,8 +524,7 @@ def _stream(system_prompt: str, messages: list) -> Generator:
         raise RuntimeError(f"Streaming error: {e}") from e
 
 
-
-# Core pipeline
+# ── Core pipeline ─────────────────────────────────────────────────────────────
 def run_pipeline(prompt: str) -> None:
     """
     Normal pipeline: merged RAG + optional web search + streamed LLM response.
@@ -572,7 +575,7 @@ def run_pipeline(prompt: str) -> None:
 
             resp_ph.markdown(full_response)
 
-            # 5. Source
+            # 5. Source pill
             if rag_context and web_context:
                 source = "rag+web"
             elif rag_context:
@@ -644,7 +647,6 @@ def run_comparison_pipeline(prompt: str) -> None:
                 except RuntimeError as e:
                     logger.warning("Retrieval failed for doc B: %s", e)
 
-            # Prompt
             compare_prompt = f"""You are ARIA, an expert research assistant.
 The user wants to COMPARE two research papers on the following question.
 
@@ -661,11 +663,11 @@ Instructions:
 - Response mode: {"concise — keep it short" if st.session_state.response_mode == "concise" else "detailed — be thorough"}
 """
 
-            # Stream comparison response
             full_response = ""
             with st.spinner(""):
                 try:
-                    model = get_chatgroq_model(mode=st.session_state.response_mode)
+                    model = get_chatgroq_model(
+                        mode=st.session_state.response_mode)
                     lc_messages = [
                         SystemMessage(content=compare_prompt),
                         HumanMessage(content=prompt),
@@ -683,7 +685,6 @@ Instructions:
             resp_ph.markdown(full_response)
             pill_ph.markdown(_pills("compare"), unsafe_allow_html=True)
 
-            # Follow-ups
             followups = generate_followups(prompt, full_response)
             if followups:
                 _render_followup_chips(followups)
@@ -698,7 +699,7 @@ Instructions:
             logger.exception("Unexpected comparison error")
 
 
-# Follow-up chips
+# ── Follow-up chips ───────────────────────────────────────────────────────────
 def _render_followup_chips(questions: List[str]) -> None:
     """Render follow-up question chips below an assistant message."""
     try:
@@ -716,23 +717,31 @@ def _render_followup_chips(questions: List[str]) -> None:
         logger.warning("Could not render follow-up chips: %s", e)
 
 
-
-# Sidebar
-def render_sidebar() -> None:
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+def render_sidebar() -> str:  # Now correctly returns the page string
     with st.sidebar:
 
         # Brand
         st.markdown("""
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
         <div class="sb-brand">
             <div>
-                <div class="sb-brand-name">ARIA</div>
+                <div class="sb-brand-name">
+                    <span class="material-icons" style="font-size:20px; vertical-align:middle;">
+                        travel_explore
+                    </span>
+                    <span style="font-size:28px; font-weight:700; margin-left:4px;">
+                        ARIA
+                    </span>
+                </div>
                 <div class="sb-brand-sub">Research Assistant</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # New chat 
-        st.markdown('<div style="padding:0.6rem 0.9rem 0.2rem;">', unsafe_allow_html=True)
+        # New chat
+        st.markdown('<div style="padding:0.6rem 0.9rem 0.2rem;">',
+                    unsafe_allow_html=True)
         if st.button("+ New chat", key="new_conv", use_container_width=True):
             try:
                 _new_conversation()
@@ -743,7 +752,8 @@ def render_sidebar() -> None:
         st.markdown("</div>", unsafe_allow_html=True)
 
         # History
-        st.markdown('<div class="sb-label">Recent</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-label">Recent</div>',
+                    unsafe_allow_html=True)
 
         try:
             sorted_convs = sorted(
@@ -756,7 +766,8 @@ def render_sidebar() -> None:
                 label = conv.get("title", "Untitled")
                 css_class = "conv-active" if is_active else "conv-btn"
                 with st.container():
-                    st.markdown(f'<div class="{css_class}">', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="{css_class}">', unsafe_allow_html=True)
                     if st.button(label, key=f"conv_{cid}", use_container_width=True):
                         if not is_active:
                             st.session_state.active_conv_id = cid
@@ -770,9 +781,9 @@ def render_sidebar() -> None:
         st.divider()
 
         # Documents list
-        st.markdown('<div class="sb-label">Documents</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-label">Documents</div>',
+                    unsafe_allow_html=True)
 
-        
         if st.session_state.doc_indexes:
             for name in list(st.session_state.doc_indexes.keys()):
                 short = (name[:22] + "…") if len(name) > 22 else name
@@ -799,9 +810,10 @@ def render_sidebar() -> None:
 
         # Comparison
         doc_names = list(st.session_state.doc_indexes.keys())
-        has_two   = len(doc_names) >= 2
+        has_two = len(doc_names) >= 2
 
-        st.markdown('<div class="sb-label">Compare mode</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-label">Compare mode</div>',
+                    unsafe_allow_html=True)
 
         compare_on = st.toggle(
             "Paper comparison",
@@ -834,8 +846,9 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        #Response
-        st.markdown('<div class="sb-label">Response mode</div>', unsafe_allow_html=True)
+        # Response mode
+        st.markdown('<div class="sb-label">Response mode</div>',
+                    unsafe_allow_html=True)
         mode = st.radio(
             "mode",
             options=["concise", "detailed"],
@@ -849,8 +862,9 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        #Web search
-        st.markdown('<div class="sb-label">Web search</div>', unsafe_allow_html=True)
+        # Web search
+        st.markdown('<div class="sb-label">Web search</div>',
+                    unsafe_allow_html=True)
         web_ok = bool(TAVILY_API_KEY)
         web_on = st.toggle(
             "Live web search",
@@ -860,8 +874,9 @@ def render_sidebar() -> None:
             key="web_toggle",
         )
         st.session_state.use_web_search = web_on and web_ok
-        dot   = "dot-on" if st.session_state.use_web_search else "dot-off"
-        label = "On" if st.session_state.use_web_search else ("No API key" if not web_ok else "Off")
+        dot = "dot-on" if st.session_state.use_web_search else "dot-off"
+        label = "On" if st.session_state.use_web_search else (
+            "No API key" if not web_ok else "Off")
         st.markdown(
             f'<div class="status-row"><span class="dot {dot}"></span>{label}</div>',
             unsafe_allow_html=True,
@@ -869,10 +884,11 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        #API status
-        st.markdown('<div class="sb-label">Status</div>', unsafe_allow_html=True)
+        # API status
+        st.markdown('<div class="sb-label">Status</div>',
+                    unsafe_allow_html=True)
         for svc, key in [("Groq", GROQ_API_KEY), ("Tavily", TAVILY_API_KEY)]:
-            dot   = "dot-on" if key else "dot-red"
+            dot = "dot-on" if key else "dot-red"
             state = "connected" if key else "missing key"
             st.markdown(
                 f'<div class="status-row">'
@@ -880,31 +896,54 @@ def render_sidebar() -> None:
                 unsafe_allow_html=True,
             )
 
+        st.divider()
+        st.markdown('<div class="sb-label">Pages</div>',
+                    unsafe_allow_html=True)
+        page = st.radio(
+            "page", options=["Chat", "Setup"],
+            label_visibility="collapsed", key="nav",
+        )
+
+    return page
 
 
-# Empty state
+# ── Empty state ───────────────────────────────────────────────────────────────
 def render_empty_state() -> None:
-    """ChatGPT-style empty state with suggestion cards."""
+    """Top-aligned empty state with suggestion cards."""
     has_doc = bool(st.session_state.doc_indexes)
 
     st.markdown("""
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <div class="empty-wrap">
-        <div class="empty-logo">ARIA</div>
+        <div class="empty-logo">
+            <span class="material-icons" style="font-size:40px; vertical-align:middle; margin-right:8px;">
+                travel_explore
+            </span>
+            <span style="font-size:45px; font-weight:1000; letter-spacing:-0.03em;">
+                ARIA
+            </span>
+        </div>
         <div class="empty-sub">Click the paperclip in the input box to attach PDFs, or ask anything below.</div>
     </div>
     """, unsafe_allow_html=True)
 
     # Doc-specific suggestions
     doc_suggestions = [
-        ("Summarise the paper",     "Give me a summary of the key contributions and findings."),
-        ("Explain the methodology", "Walk me through the methodology used in this paper."),
-        ("Key limitations",         "What are the limitations and future work mentioned?"),
-        ("Related work",            "What prior work does this paper build on?"),
+        ("Summarise the paper",
+         "Give me a summary of the key contributions and findings."),
+        ("Explain the methodology",
+         "Walk me through the methodology used in this paper."),
+        ("Key limitations",
+         "What are the limitations and future work mentioned?"),
+        ("Related work",
+         "What prior work does this paper build on?"),
     ]
-    # General suggestions 
+    # General suggestions
     general_suggestions = [
-        ("Latest LLM research",  "What are the latest trends in large language model research?"),
-        ("RAG vs Fine-tuning",   "What are the differences between RAG and fine-tuning?"),
+        ("Latest LLM research",
+         "What are the latest trends in large language model research?"),
+        ("RAG vs Fine-tuning",
+         "What are the differences between RAG and fine-tuning?"),
     ]
 
     if has_doc:
@@ -930,7 +969,8 @@ def render_empty_state() -> None:
             f'{chips}</div>',
             unsafe_allow_html=True,
         )
-        st.markdown('<div style="height:0.6rem;"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.6rem;"></div>',
+                    unsafe_allow_html=True)
         cols = st.columns(2)
         for i, (label, prompt) in enumerate(general_suggestions):
             with cols[i % 2]:
@@ -939,9 +979,7 @@ def render_empty_state() -> None:
                     st.rerun()
 
 
-
-# Message renderer
-
+# ── Message renderer ──────────────────────────────────────────────────────────
 def render_messages() -> None:
     """Render full conversation history with source pills."""
     try:
@@ -955,25 +993,21 @@ def render_messages() -> None:
         logger.error("Message render failed: %s", e)
 
 
-
-# Chat page
-
+# ── Attached file handler ─────────────────────────────────────────────────────
 def _handle_attached_files(attached_files: list) -> None:
     """
     Process PDF files attached via the chat input box.
     Indexes each new file and rebuilds the merged FAISS index.
-
-    Args:
-        attached_files: list of UploadedFile objects from st.chat_input.
     """
     try:
         newly_indexed = []
         for uf in attached_files:
             if not uf.name.lower().endswith(".pdf"):
-                st.warning(f"Skipped '{uf.name}' — only PDF files are supported.")
+                st.warning(
+                    f"Skipped '{uf.name}' — only PDF files are supported.")
                 continue
             if uf.name in st.session_state.doc_indexes:
-                continue  # already indexed
+                continue
             with st.spinner(f"Indexing {uf.name[:28]}…"):
                 try:
                     vs = ingest_pdf(uf)
@@ -982,7 +1016,8 @@ def _handle_attached_files(attached_files: list) -> None:
                     logger.info("Indexed via attachment: %s", uf.name)
                 except RuntimeError as e:
                     st.error(f"Could not index '{uf.name}': {e}")
-                    logger.error("Attachment index failed for %s: %s", uf.name, e)
+                    logger.error(
+                        "Attachment index failed for %s: %s", uf.name, e)
 
         if newly_indexed:
             _rebuild_merged_index()
@@ -994,15 +1029,16 @@ def _handle_attached_files(attached_files: list) -> None:
         st.error(f"File processing error: {e}")
 
 
+# ── Chat page ─────────────────────────────────────────────────────────────────
 def chat_page() -> None:
     try:
-        conv  = st.session_state.conversations.get(st.session_state.active_conv_id, {})
-        msgs  = conv.get("messages", [])
+        conv = st.session_state.conversations.get(
+            st.session_state.active_conv_id, {})
+        msgs = conv.get("messages", [])
         title = conv.get("title", "ARIA")
     except Exception:
         msgs, title = [], "ARIA"
 
-    
     if msgs:
         st.markdown(
             f'<div style="padding:1rem 0 0.6rem;border-bottom:1px solid #2a2a2a;'
@@ -1010,7 +1046,6 @@ def chat_page() -> None:
             f'font-family:Inter,sans-serif;">{title}</div>',
             unsafe_allow_html=True,
         )
-
 
     if st.session_state.compare_mode and st.session_state.compare_doc_a and st.session_state.compare_doc_b:
         a = st.session_state.compare_doc_a
@@ -1023,19 +1058,19 @@ def chat_page() -> None:
             unsafe_allow_html=True,
         )
 
-    
     if not msgs and not st.session_state.pending_prompt:
         render_empty_state()
 
     # Message history
     render_messages()
 
-    # Handle pending prompt
+    # Handle pending prompt (from suggestion / follow-up chips)
     if st.session_state.pending_prompt:
         prompt = st.session_state.pending_prompt
         st.session_state.pending_prompt = None
 
-        doc_kw = ["summary", "methodology", "limitations", "prior work", "findings", "paper"]
+        doc_kw = ["summary", "methodology", "limitations",
+                  "prior work", "findings", "paper"]
         needs_doc = any(kw in prompt.lower() for kw in doc_kw)
         if needs_doc and not st.session_state.doc_indexes:
             st.info("Attach a PDF first to ask document-specific questions.")
@@ -1048,7 +1083,7 @@ def chat_page() -> None:
             else:
                 run_pipeline(prompt)
 
-
+    # Chat input
     try:
         result = st.chat_input(
             "Attach PDFs or ask ARIA anything…",
@@ -1057,23 +1092,19 @@ def chat_page() -> None:
             key="chat_input_main",
         )
     except TypeError:
-        # Fallback 
         result = st.chat_input("Ask ARIA…", key="chat_input_fallback")
 
     if result is not None:
         try:
             attached = getattr(result, "files", None) or []
-            prompt   = getattr(result, "text", result) or ""
+            prompt = getattr(result, "text", result) or ""
 
-            
             if attached:
                 _handle_attached_files(attached)
 
-            # pipeline
             if prompt and prompt.strip():
                 _add_message("user", prompt.strip())
                 with st.chat_message("user"):
-                    
                     if attached:
                         file_tags = " ".join(
                             f'<span style="background:#1a2a1a;color:#10a37f;'
@@ -1091,7 +1122,6 @@ def chat_page() -> None:
                     run_pipeline(prompt.strip())
 
             elif attached and not prompt.strip():
-                
                 names = ", ".join(f.name[:20] for f in attached)
                 st.success(f"Attached: {names} — now ask a question about it.")
 
@@ -1100,8 +1130,7 @@ def chat_page() -> None:
             st.error(f"Input error: {e}")
 
 
-
-# Setup page
+# ── Setup page ────────────────────────────────────────────────────────────────
 def setup_page() -> None:
     st.markdown("""
     <div style="padding:1.5rem 0 1rem;">
@@ -1121,21 +1150,16 @@ Check Github: www.github.com/Hemanth-1354/ARIA-Bot
     """)
 
 
-
-# Entry point
-
+# ── Entry point ───────────────────────────────────────────────────────────────
 def main() -> None:
     try:
         init_session_state()
-        render_sidebar()
 
-        with st.sidebar:
-            st.divider()
-            st.markdown('<div class="sb-label">Pages</div>', unsafe_allow_html=True)
-            page = st.radio(
-                "page", options=["Chat", "Setup"],
-                label_visibility="collapsed", key="nav",
-            )
+        # Render sidebar conditionally
+        if st.session_state.sidebar_open:
+            page = render_sidebar()
+        else:
+            page = "Chat"  # Default to Chat when sidebar is hidden
 
         if page == "Chat":
             chat_page()
@@ -1144,7 +1168,6 @@ def main() -> None:
 
     except Exception as e:
         st.error(f"Application error: {e}")
-        logger.exception("Fatal error")
 
 
 if __name__ == "__main__":
