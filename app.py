@@ -375,9 +375,8 @@ hr { border-color: #2a2a2a !important; margin: 0.5rem 0 !important; }
 """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Session State
-# ─────────────────────────────────────────────────────────────────────────────
 def init_session_state() -> None:
     """Bootstrap all session state keys with safe defaults."""
     defaults: dict = {
@@ -410,9 +409,7 @@ def init_session_state() -> None:
         _new_conversation()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Conversation helpers
-# ─────────────────────────────────────────────────────────────────────────────
 def _new_conversation(title: str = "New chat") -> str:
     """Create a fresh conversation and set it as active."""
     try:
@@ -443,7 +440,7 @@ def _add_message(role: str, content: str, **meta) -> None:
         cid = st.session_state.active_conv_id
         msg = {"role": role, "content": content, **meta}
         st.session_state.conversations[cid]["messages"].append(msg)
-        # Auto-title from first user message
+        # Auto-title
         if role == "user" and len(st.session_state.conversations[cid]["messages"]) == 1:
             title = content[:40] + ("…" if len(content) > 40 else "")
             st.session_state.conversations[cid]["title"] = title
@@ -451,9 +448,7 @@ def _add_message(role: str, content: str, **meta) -> None:
         logger.error("Failed to add message: %s", e)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Document management
-# ─────────────────────────────────────────────────────────────────────────────
 def _rebuild_merged_index() -> None:
     """Rebuild the merged FAISS index from all loaded doc indexes."""
     try:
@@ -481,9 +476,7 @@ def _remove_document(name: str) -> None:
         logger.error("Failed to remove document '%s': %s", name, e)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Source pills HTML
-# ─────────────────────────────────────────────────────────────────────────────
 def _pills(source: str) -> str:
     m = {
         "rag":     '<span class="spill sp-doc">Document</span>',
@@ -495,9 +488,8 @@ def _pills(source: str) -> str:
     return m.get(source, "")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # LLM — streaming
-# ─────────────────────────────────────────────────────────────────────────────
 def _stream(system_prompt: str, messages: list) -> Generator:
     """
     Stream tokens from Groq.
@@ -528,9 +520,8 @@ def _stream(system_prompt: str, messages: list) -> Generator:
         raise RuntimeError(f"Streaming error: {e}") from e
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Core pipeline
-# ─────────────────────────────────────────────────────────────────────────────
 def run_pipeline(prompt: str) -> None:
     """
     Normal pipeline: merged RAG + optional web search + streamed LLM response.
@@ -541,7 +532,7 @@ def run_pipeline(prompt: str) -> None:
         pill_ph = st.empty()
 
         try:
-            # 1. RAG from merged index
+            # 1. RAG
             rag_context = ""
             if st.session_state.merged_index:
                 try:
@@ -603,7 +594,7 @@ def run_pipeline(prompt: str) -> None:
                         st.caption("From web")
                         st.markdown(web_context[:1500])
 
-            # 7. Follow-up suggestions
+            # 7. Follow-ups
             followups = generate_followups(prompt, full_response)
             if followups:
                 _render_followup_chips(followups)
@@ -636,7 +627,6 @@ def run_comparison_pipeline(prompt: str) -> None:
         pill_ph = st.empty()
 
         try:
-            # Retrieve separately from each doc
             a_index = st.session_state.doc_indexes.get(doc_a)
             b_index = st.session_state.doc_indexes.get(doc_b)
 
@@ -654,7 +644,7 @@ def run_comparison_pipeline(prompt: str) -> None:
                 except RuntimeError as e:
                     logger.warning("Retrieval failed for doc B: %s", e)
 
-            # Build comparison system prompt
+            # Prompt
             compare_prompt = f"""You are ARIA, an expert research assistant.
 The user wants to COMPARE two research papers on the following question.
 
@@ -708,9 +698,7 @@ Instructions:
             logger.exception("Unexpected comparison error")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Follow-up chips
-# ─────────────────────────────────────────────────────────────────────────────
 def _render_followup_chips(questions: List[str]) -> None:
     """Render follow-up question chips below an assistant message."""
     try:
@@ -728,13 +716,12 @@ def _render_followup_chips(questions: List[str]) -> None:
         logger.warning("Could not render follow-up chips: %s", e)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Sidebar
-# ─────────────────────────────────────────────────────────────────────────────
 def render_sidebar() -> None:
     with st.sidebar:
 
-        # ── Brand ─────────────────────────────────────────────────────────────
+        # Brand
         st.markdown("""
         <div class="sb-brand">
             <div>
@@ -744,7 +731,7 @@ def render_sidebar() -> None:
         </div>
         """, unsafe_allow_html=True)
 
-        # ── New chat ───────────────────────────────────────────────────────────
+        # New chat 
         st.markdown('<div style="padding:0.6rem 0.9rem 0.2rem;">', unsafe_allow_html=True)
         if st.button("+ New chat", key="new_conv", use_container_width=True):
             try:
@@ -755,7 +742,7 @@ def render_sidebar() -> None:
                 st.error(str(e))
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # ── Conversation history ───────────────────────────────────────────────
+        # History
         st.markdown('<div class="sb-label">Recent</div>', unsafe_allow_html=True)
 
         try:
@@ -782,10 +769,10 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # ── Documents list (managed via input box attachment) ─────────────────
+        # Documents list
         st.markdown('<div class="sb-label">Documents</div>', unsafe_allow_html=True)
 
-        # Loaded docs list with remove buttons
+        
         if st.session_state.doc_indexes:
             for name in list(st.session_state.doc_indexes.keys()):
                 short = (name[:22] + "…") if len(name) > 22 else name
@@ -810,7 +797,7 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # ── Comparison mode ────────────────────────────────────────────────────
+        # Comparison
         doc_names = list(st.session_state.doc_indexes.keys())
         has_two   = len(doc_names) >= 2
 
@@ -847,7 +834,7 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # ── Response mode ──────────────────────────────────────────────────────
+        #Response
         st.markdown('<div class="sb-label">Response mode</div>', unsafe_allow_html=True)
         mode = st.radio(
             "mode",
@@ -862,7 +849,7 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # ── Web search ─────────────────────────────────────────────────────────
+        #Web search
         st.markdown('<div class="sb-label">Web search</div>', unsafe_allow_html=True)
         web_ok = bool(TAVILY_API_KEY)
         web_on = st.toggle(
@@ -882,7 +869,7 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # ── API status ─────────────────────────────────────────────────────────
+        #API status
         st.markdown('<div class="sb-label">Status</div>', unsafe_allow_html=True)
         for svc, key in [("Groq", GROQ_API_KEY), ("Tavily", TAVILY_API_KEY)]:
             dot   = "dot-on" if key else "dot-red"
@@ -894,9 +881,8 @@ def render_sidebar() -> None:
             )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Empty state
-# ─────────────────────────────────────────────────────────────────────────────
 def render_empty_state() -> None:
     """ChatGPT-style empty state with suggestion cards."""
     has_doc = bool(st.session_state.doc_indexes)
@@ -908,14 +894,14 @@ def render_empty_state() -> None:
     </div>
     """, unsafe_allow_html=True)
 
-    # Doc-specific suggestions (locked without docs)
+    # Doc-specific suggestions
     doc_suggestions = [
         ("Summarise the paper",     "Give me a summary of the key contributions and findings."),
         ("Explain the methodology", "Walk me through the methodology used in this paper."),
         ("Key limitations",         "What are the limitations and future work mentioned?"),
         ("Related work",            "What prior work does this paper build on?"),
     ]
-    # General suggestions (always available)
+    # General suggestions 
     general_suggestions = [
         ("Latest LLM research",  "What are the latest trends in large language model research?"),
         ("RAG vs Fine-tuning",   "What are the differences between RAG and fine-tuning?"),
@@ -929,7 +915,6 @@ def render_empty_state() -> None:
                     st.session_state.pending_prompt = prompt
                     st.rerun()
     else:
-        # Show doc suggestions greyed out
         chips = "".join(
             f'<span style="display:inline-block;background:#1a1a1a;border:1px solid #2a2a2a;'
             f'color:#3a3a3a;font-size:0.78rem;font-family:Inter,sans-serif;font-weight:500;'
@@ -954,9 +939,9 @@ def render_empty_state() -> None:
                     st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Message renderer
-# ─────────────────────────────────────────────────────────────────────────────
+
 def render_messages() -> None:
     """Render full conversation history with source pills."""
     try:
@@ -970,9 +955,9 @@ def render_messages() -> None:
         logger.error("Message render failed: %s", e)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Chat page
-# ─────────────────────────────────────────────────────────────────────────────
+
 def _handle_attached_files(attached_files: list) -> None:
     """
     Process PDF files attached via the chat input box.
@@ -1017,7 +1002,7 @@ def chat_page() -> None:
     except Exception:
         msgs, title = [], "ARIA"
 
-    # Compact header for active conversations
+    
     if msgs:
         st.markdown(
             f'<div style="padding:1rem 0 0.6rem;border-bottom:1px solid #2a2a2a;'
@@ -1026,7 +1011,7 @@ def chat_page() -> None:
             unsafe_allow_html=True,
         )
 
-    # Comparison mode banner
+
     if st.session_state.compare_mode and st.session_state.compare_doc_a and st.session_state.compare_doc_b:
         a = st.session_state.compare_doc_a
         b = st.session_state.compare_doc_b
@@ -1038,14 +1023,14 @@ def chat_page() -> None:
             unsafe_allow_html=True,
         )
 
-    # Empty state
+    
     if not msgs and not st.session_state.pending_prompt:
         render_empty_state()
 
     # Message history
     render_messages()
 
-    # Handle pending prompt (from suggestion / follow-up button)
+    # Handle pending prompt
     if st.session_state.pending_prompt:
         prompt = st.session_state.pending_prompt
         st.session_state.pending_prompt = None
@@ -1063,7 +1048,7 @@ def chat_page() -> None:
             else:
                 run_pipeline(prompt)
 
-    # ── Chat input with native file attachment (Streamlit ≥ 1.40) ────────────
+
     try:
         result = st.chat_input(
             "Attach PDFs or ask ARIA anything…",
@@ -1072,24 +1057,23 @@ def chat_page() -> None:
             key="chat_input_main",
         )
     except TypeError:
-        # Fallback for Streamlit < 1.40 — plain text input only
+        # Fallback 
         result = st.chat_input("Ask ARIA…", key="chat_input_fallback")
 
     if result is not None:
-        # result is a ChatInputValue object with .text and .files
         try:
             attached = getattr(result, "files", None) or []
             prompt   = getattr(result, "text", result) or ""
 
-            # 1. Process any attached PDFs first
+            
             if attached:
                 _handle_attached_files(attached)
 
-            # 2. If there's text, run the pipeline
+            # pipeline
             if prompt and prompt.strip():
                 _add_message("user", prompt.strip())
                 with st.chat_message("user"):
-                    # Show attached file names alongside the message
+                    
                     if attached:
                         file_tags = " ".join(
                             f'<span style="background:#1a2a1a;color:#10a37f;'
@@ -1107,7 +1091,7 @@ def chat_page() -> None:
                     run_pipeline(prompt.strip())
 
             elif attached and not prompt.strip():
-                # Files attached but no message — show confirmation
+                
                 names = ", ".join(f.name[:20] for f in attached)
                 st.success(f"Attached: {names} — now ask a question about it.")
 
@@ -1116,9 +1100,8 @@ def chat_page() -> None:
             st.error(f"Input error: {e}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Setup page
-# ─────────────────────────────────────────────────────────────────────────────
 def setup_page() -> None:
     st.markdown("""
     <div style="padding:1.5rem 0 1rem;">
@@ -1131,58 +1114,16 @@ def setup_page() -> None:
     """, unsafe_allow_html=True)
 
     st.markdown("""
-### Installation
+### 
 ```bash
-pip install -r requirements.txt
-```
-
-### API Keys
-
-| Key | Where | Free |
-|---|---|---|
-| `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) | Yes |
-| `TAVILY_API_KEY` | [app.tavily.com](https://app.tavily.com) | Yes |
-
-### Run locally
-```bash
-GROQ_API_KEY=gsk_... TAVILY_API_KEY=tvly_... streamlit run app.py
-```
-
-### Streamlit Cloud
-1. Push to GitHub → connect at [share.streamlit.io](https://share.streamlit.io)
-2. Entry point: `app.py`
-3. Add secrets:
-```toml
-GROQ_API_KEY   = "gsk_..."
-TAVILY_API_KEY = "tvly-..."
-```
-
-### Features
-- **Multi-document RAG** — upload multiple PDFs, ARIA searches across all simultaneously
-- **Paper comparison** — enable comparison mode, select two papers, ask any question
-- **Follow-up questions** — ARIA suggests 3 smart follow-ups after every answer
-- **Streaming** — responses render token by token
-- **Conversation history** — all sessions saved in the sidebar
-
-### Architecture
-```
-project/
-├── config/config.py         ← API keys & settings (env vars)
-├── models/llm.py            ← Groq Llama 3.3 70B, mode-aware
-├── models/embeddings.py     ← HuggingFace all-MiniLM-L6-v2
-├── utils/rag.py             ← Multi-doc: ingest, merge, retrieve, compare
-├── utils/followup.py        ← Follow-up question generation
-├── utils/web_search.py      ← Tavily real-time search
-├── utils/prompt_builder.py  ← Dynamic system prompt builder
-├── app.py                   ← Streamlit UI
-└── requirements.txt
+Check Github: www.github.com/Hemanth-1354
 ```
     """)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # Entry point
-# ─────────────────────────────────────────────────────────────────────────────
+
 def main() -> None:
     try:
         init_session_state()

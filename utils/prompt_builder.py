@@ -79,21 +79,21 @@ def build_system_prompt(
     try:
         parts = [BASE_PERSONA]
 
-        # Response mode instruction
+        # Instruction
         if mode == "concise":
             parts.append(CONCISE_INSTRUCTION)
         else:
             parts.append(DETAILED_INSTRUCTION)
 
-        # Inject RAG context if available
+        # RAG context
         if rag_context and rag_context.strip():
             parts.append(RAG_CONTEXT_TEMPLATE.format(context=rag_context))
 
-        # Inject web search context if available
+        #  Web search 
         if web_context and web_context.strip():
             parts.append(WEB_CONTEXT_TEMPLATE.format(web_results=web_context))
 
-        # If no context at all
+        # No context
         if not rag_context and not web_context:
             parts.append(
                 "\nNo document has been uploaded yet. "
@@ -112,5 +112,5 @@ def build_system_prompt(
 
     except Exception as e:
         logger.error("Failed to build system prompt: %s", e)
-        # Fallback to a safe minimal prompt
+        # Fallback
         return BASE_PERSONA

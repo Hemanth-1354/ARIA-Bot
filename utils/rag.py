@@ -50,7 +50,7 @@ def load_pdf_documents(uploaded_file) -> List[Document]:
         if not documents:
             raise ValueError("No content extracted from PDF.")
 
-        # Tag every chunk with the original filename for multi-doc attribution
+        
         for doc in documents:
             doc.metadata["filename"] = uploaded_file.name
 

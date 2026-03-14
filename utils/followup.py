@@ -62,12 +62,12 @@ def generate_followups(user_question: str, assistant_answer: str) -> List[str]:
             if q.strip() and len(q.strip()) > 5
         ]
 
-        # Return at most 3 valid questions
+        #  3 follow-ups
         valid = [q for q in questions if len(q) > 5][:3]
         logger.info("Generated %d follow-up suggestions.", len(valid))
         return valid
 
     except Exception as e:
-        # Follow-ups are non-critical — fail silently, log the error
+        # Follow-ups
         logger.warning("Follow-up generation failed (non-critical): %s", e)
         return []

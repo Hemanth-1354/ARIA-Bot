@@ -36,7 +36,7 @@ def search_web(query: str, max_results: int = 4) -> Optional[str]:
                 "Add it to your environment variables or Streamlit secrets."
             )
 
-        # Import here to avoid error if package not installed
+        
         from tavily import TavilyClient
 
         client = TavilyClient(api_key=TAVILY_API_KEY)
@@ -54,11 +54,11 @@ def search_web(query: str, max_results: int = 4) -> Optional[str]:
 
         parts = []
 
-        # Include Tavily's synthesised answer if available
+       
         if response.get("answer"):
             parts.append(f"**Summary:** {response['answer']}\n")
 
-        # Include individual search results
+        
         results = response.get("results", [])
         if results:
             parts.append("**Sources:**")
