@@ -876,7 +876,7 @@ def render_sidebar() -> None:
             state = "connected" if key else "missing key"
             st.markdown(
                 f'<div class="status-row">'
-                f'<span class="dot {dot}"></span>{svc} — {state}</div>',
+                f'<span class="dot {dot}"></span>{svc} - {state}</div>',
                 unsafe_allow_html=True,
             )
 
