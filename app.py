@@ -37,22 +37,22 @@ from utils.prompt_builder import build_system_prompt
 from utils.followup import generate_followups
 from config.config import GROQ_API_KEY, TAVILY_API_KEY
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# Logging 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# Page config
 st.set_page_config(
     page_title="ARIA",
-    page_icon="🔬",
+    page_icon=":material/psychology:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── CSS — ChatGPT-style ───────────────────────────────────────────────────────
+# CSS 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
